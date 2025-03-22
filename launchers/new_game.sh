@@ -145,83 +145,21 @@ export SBS_SA_NAME="$(echo ${GAME_NAME}sa | sed 's/-//g')"
 export SBS_SC_NAME="$(echo ${GAME_NAME}sc | sed 's/-//g')"
 export REPO_NAME="$GAME_NAME-infra-live"
 
-# cat << EOF > "${SCAFFOLD_BOOTSTRAP_DIR}/main.tf"
-# module "scaffolding" {
-#   source = "git@github.com:je-sidestuff/terraform-github-orchestration.git//modules/terragrunt/scaffolder/?ref=environment_deployment_support"
+#         "init_payload_content_vars.yml": "InitPayloadContent: |\n  { \"subscription_id\": \"$ARM_SUBSCRIPTION_ID\", \"input_targets\": {} }"
 
-#   scaffolding_root = "${BOOTSTRAP_BASE_DIR}"
 
-#   subscription_id = "$ARM_SUBSCRIPTION_ID"
-
-#   var_files = {
-#     ("init_payload_content_vars.yml") = <<EOT
-# InitPayloadContent: |
-#   { "game_name": "${GAME_NAME}" }
-# EOT
-#   }
-
-#   input_targets = {
-#     # self_bootstrapped_state = {
-#     #   repo = "je-sidestuff/terraform-azure-simple-modules"
-#     #   path = "modules/state/self-bootstrapped-state"
-#     #   branch = "environment_deployment_support"
-#     #   placement = {
-#     #     region = "eastus"
-#     #     env = "default"
-#     #     subscription = "sandbox"
-#     #   }
-#     #   vars = {
-#     #     ResourceGroupName = "$SBS_RG_NAME"
-#     #     StorageAccountName = "$SBS_SA_NAME"
-#     #     RootContainerName = "$SBS_SC_NAME"
-#     #     TerragruntBackendGeneratorFolder = "$TERRAGRUNT_BOOTSTRAP_DIR"
-#     #   }
-#     # }
-#     managed_identity = {
-#       repo = "je-sidestuff/terraform-azure-simple-modules"
-#       path = "modules/iam/managed-identity"
-#       branch = "environment_deployment_support"
-#       placement = {
-#         region = "eastus"
-#         env = "default"
-#         subscription = "sandbox"
-#       }
-#       vars = {
-#         ResourceGroupName = "$SBS_RG_NAME"
-#         NamingPrefix = "${GAME_NAME}"
-#         FederatedIdentitySubjects = "\"[repo:${TF_VAR_github_org}/${REPO_NAME}:ref:refs/heads/main]\""
-#         ContributorScope = "/subscriptions/$ARM_SUBSCRIPTION_ID"
-#       }
-#     }
-#     infrastructure_live_repo = {
-#       repo = "je-sidestuff/terraform-azure-simple-modules"
-#       path = "modules/smart-template/infrastructure-live-deployment"
-#       branch = "environment_deployment_support"
-#       placement = {
-#         region = "eastus"
-#         env = "default"
-#         subscription = "sandbox"
-#       }
-#       vars = {
-#         Name = "${REPO_NAME}"
-#         GithubOrg = "${TF_VAR_github_org}"
-#       }
-#       var_files = [
-#         "init_payload_content_vars.yml"
-#       ]
-#     }
-#   }
-# }
-# EOF
-
-# Not currently used.
-cat << EOF > "${SCAFFOLD_BOOTSTRAP_DIR}/init_payload_recurse.yml"
+cat << EOF > "${SCAFFOLD_BOOTSTRAP_DIR}/init_payload_content_vars.yml"
 InitPayloadContent: |
   {
-    "scaffolding_root": "${BOOTSTRAP_BASE_DIR}",
+  "backend": {
+    "resource_group": "$SBS_RG_NAME",
+    "storage_account": "$SBS_SA_NAME",
+    "container": "$SBS_SC_NAME"
+  },
+  "self_bootstrap" : {
     "subscription_id": "$ARM_SUBSCRIPTION_ID",
-    "var_files": {
-      "init_payload_content_vars.yml": "nope"
+    "var_file_strings": {
+      "init_payload_content_vars.yml": "InitPayloadContent: |\n  { \"subscription_id\": \"$ARM_SUBSCRIPTION_ID\", \"input_targets\": {} }"
     },
     "input_targets": {
       "managed_identity": {
@@ -236,7 +174,7 @@ InitPayloadContent: |
         "vars": {
           "ResourceGroupName": "$SBS_RG_NAME",
           "NamingPrefix": "${GAME_NAME}",
-          "FederatedIdentitySubjects": "\"[repo:${TF_VAR_github_org}/${REPO_NAME}:ref:refs/heads/main]\"",
+          "FederatedIdentitySubjects": "\"[repo:${TF_VAR_github_org}/${REPO_NAME}:ref:refs/heads/main, repo:${TF_VAR_github_org}/${REPO_NAME}:ref:refs/tags/init]\"",
           "ContributorScope": "/subscriptions/$ARM_SUBSCRIPTION_ID"
         }
       },
@@ -251,14 +189,36 @@ InitPayloadContent: |
         },
         "vars": {
           "Name": "${REPO_NAME}",
-          "GithubOrg": "${TF_VAR_github_org}"
+          "GithubOrg": "${TF_VAR_github_org}",
+          "TimeoutInSeconds": "20"
         },
         "var_files": [
           "init_payload_content_vars.yml"
         ]
       }
     }
-  }
+  },
+  "deployment" : {
+    "subscription_id": "$ARM_SUBSCRIPTION_ID",
+    "var_file_strings": {
+      "init_payload_content_vars.yml": "InitPayloadContent: |\n  { \"subscription_id\": \"$ARM_SUBSCRIPTION_ID\", \"input_targets\": {} }"
+    },
+    "input_targets": {
+      "managed_identity": {
+        "repo": "je-sidestuff/terraform-azure-simple-modules",
+        "path": "examples/container-app/simple-webserver",
+        "branch": "environment_deployment_support",
+        "placement": {
+          "region": "eastus",
+          "env": "default",
+          "subscription": "sandbox"
+        },
+        "vars": {
+          "NamingPrefix": "${GAME_NAME}"
+        }
+      }
+    }
+  }}
 EOF
 
 export ESCAPED_PAYLOAD_RECURSE="$(awk '{printf "%s\\n", $0}' ${SCAFFOLD_BOOTSTRAP_DIR}/init_payload_recurse.yml | sed 's/"/\\"/g')"
@@ -273,9 +233,9 @@ module "scaffolding" {
   {
     "scaffolding_root": "${BOOTSTRAP_BASE_DIR}",
     "subscription_id": "$ARM_SUBSCRIPTION_ID",
-    "var_files": {
-      "init_payload_content_vars.yml": "InitPayloadContent: |\n  { \"game_name\": \"${GAME_NAME}\" }"
-    },
+    "var_files": [
+      "init_payload_content_vars.yml"
+    ],
     "input_targets": {
       "managed_identity": {
         "repo": "je-sidestuff/terraform-azure-simple-modules",
@@ -289,7 +249,7 @@ module "scaffolding" {
         "vars": {
           "ResourceGroupName": "$SBS_RG_NAME",
           "NamingPrefix": "${GAME_NAME}",
-          "FederatedIdentitySubjects": "\"[repo:${TF_VAR_github_org}/${REPO_NAME}:ref:refs/heads/main]\"",
+          "FederatedIdentitySubjects": "\"[repo:${TF_VAR_github_org}/${REPO_NAME}:ref:refs/heads/main, repo:${TF_VAR_github_org}/${REPO_NAME}:ref:refs/tags/init]\"",
           "ContributorScope": "/subscriptions/$ARM_SUBSCRIPTION_ID"
         }
       },
@@ -304,7 +264,8 @@ module "scaffolding" {
         },
         "vars": {
           "Name": "${REPO_NAME}",
-          "GithubOrg": "${TF_VAR_github_org}"
+          "GithubOrg": "${TF_VAR_github_org}",
+          "TimeoutInSeconds": "300"
         },
         "var_files": [
           "init_payload_content_vars.yml"
