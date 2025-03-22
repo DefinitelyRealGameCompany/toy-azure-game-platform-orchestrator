@@ -6,7 +6,6 @@
 
 # Description:
 #   This script automates the creation of a new game environment.
-#   ...TODO: Add detailed description of the game environment setup...
 
 # Usage:
 #   ./new_game.sh [game_prefix]
