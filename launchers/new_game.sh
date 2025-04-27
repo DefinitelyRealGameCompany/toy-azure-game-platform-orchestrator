@@ -42,7 +42,11 @@ fi
 
 # Set optional environment variables if they are not set
 if [ -z "$TASM_REF" ]; then
-    export TASM_REF="feat/environment_deployment_support" # TODO - switch to main next increment
+    export TASM_REF="v0.0.1-with-app"
+fi
+
+if [ -z "$TGO_REF" ]; then
+    export TGO_REF="v0.0.1"
 fi
 
 # Check if the number of arguments is 1, use it as the game name prefix if so, and ask the user if they want to
@@ -164,7 +168,7 @@ InitPayloadContent: |
       "managed_identity": {
         "repo": "je-sidestuff/terraform-azure-simple-modules",
         "path": "modules/iam/managed-identity",
-        "branch": "environment_deployment_support",
+        "ref": "$TASM_REF",
         "placement": {
           "region": "eastus",
           "env": "default",
@@ -180,7 +184,7 @@ InitPayloadContent: |
       "infrastructure_live_repo": {
         "repo": "je-sidestuff/terraform-azure-simple-modules",
         "path": "modules/smart-template/infrastructure-live-deployment",
-        "branch": "environment_deployment_support",
+        "ref": "$TASM_REF",
         "placement": {
           "region": "eastus",
           "env": "default",
@@ -206,14 +210,14 @@ InitPayloadContent: |
       "managed_identity": {
         "repo": "je-sidestuff/terraform-azure-simple-modules",
         "path": "examples/container-app/simple-webserver",
-        "branch": "environment_deployment_support",
+        "ref": "$TASM_REF",
         "placement": {
           "region": "eastus",
           "env": "default",
           "subscription": "sandbox"
         },
         "vars": {
-          "NamingPrefix": "${GAME_NAME}"
+          "NamingPrefix": "gm${GAME_NAME}"
         }
       }
     }
@@ -226,7 +230,7 @@ echo "Payload: ${ESCAPED_PAYLOAD_RECURSE}"
 
 cat << EOF > "${SCAFFOLD_BOOTSTRAP_DIR}/main.tf"
 module "scaffolding" {
-  source = "github.com/je-sidestuff/terraform-github-orchestration//modules/terragrunt/scaffolder/from-json/?ref=environment_deployment_support"
+  source = "github.com/je-sidestuff/terraform-github-orchestration//modules/terragrunt/scaffolder/from-json/?ref=$TGO_REF"
 
   input_json = <<EOT
   {
@@ -239,7 +243,7 @@ module "scaffolding" {
       "managed_identity": {
         "repo": "je-sidestuff/terraform-azure-simple-modules",
         "path": "modules/iam/managed-identity",
-        "branch": "environment_deployment_support",
+        "ref": "$TASM_REF",
         "placement": {
           "region": "eastus",
           "env": "default",
@@ -255,7 +259,7 @@ module "scaffolding" {
       "infrastructure_live_repo": {
         "repo": "je-sidestuff/terraform-azure-simple-modules",
         "path": "modules/smart-template/infrastructure-live-deployment",
-        "branch": "environment_deployment_support",
+        "ref": "$TASM_REF",
         "placement": {
           "region": "eastus",
           "env": "default",
