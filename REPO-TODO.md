@@ -21,7 +21,7 @@ Over the next few versions tags will be kept consistent between tags for:
 - Clean-up (self-destruct) script
   - From local repo or created repo
 - Abstract cloud-specific logic
-- Isolate and switch to plug-in for any extra smart repo workflow steps
+- Isolate and switch to plug-in for any extra smart repo github action workflow steps
 - Pass full set of explicit versions through - improve this interface and echo chosen version set
   - Add a versioning paradigm to infra-live templates since this is not supported by github
 - Thorough tracing for full process
@@ -30,3 +30,4 @@ Over the next few versions tags will be kept consistent between tags for:
 - Bring verbosity into log files (optionally?)
 - Switch from using ACA example to using modules explicitly
 - Ensure failfast and reported failures
+- Add "universe registry" support for local or remote handles
