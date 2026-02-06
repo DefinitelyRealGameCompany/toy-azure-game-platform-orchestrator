@@ -21,13 +21,14 @@ Over the next few versions tags will be kept consistent between tags for:
 - Clean-up (self-destruct) script
   - From local repo or created repo
 - Abstract cloud-specific logic
-- Isolate and switch to plug-in for any extra smart repo github action workflow steps
+- Isolate and switch to plug-in for any extra smart repo github action workflow steps (like cloud-specific auth)
 - Pass full set of explicit versions through - improve this interface and echo chosen version set
   - Add a versioning paradigm to infra-live templates since this is not supported by github
 - Thorough tracing for full process
   - Allow full process to be run locally
-- Disable PII info output (By default? Things like Azure subscription ID)
+- Tag propogation through full process
+- Disable PII info output (By default only/toggleble? Things like Azure subscription ID)
 - Bring verbosity into log files (optionally?)
 - Switch from using ACA example to using modules explicitly
 - Ensure failfast and reported failures
-- Add "universe registry" support for local or remote handles
+- Add "universe registry" support for local or remote handles (a location to hold the handle to a new platform root/etc)

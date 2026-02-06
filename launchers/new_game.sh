@@ -43,10 +43,12 @@ fi
 # Set optional environment variables if they are not set
 if [ -z "$TASM_REF" ]; then
     export TASM_REF="v0.0.1-with-app"
+    export TASM_REF="support_self_bootstrapped_state_scaffold_fully" # TODO: Remove
 fi
 
 if [ -z "$TGO_REF" ]; then
     export TGO_REF="v0.0.1"
+    export TGO_REF="finish_scaffold_generators_and_backends" # TODO: Remove
 fi
 
 # Check if the number of arguments is 1, use it as the game name prefix if so, and ask the user if they want to
@@ -108,181 +110,266 @@ if [ $? -ne 0 ]; then
     exit 1
 else
     export AZ_SUBSCRIPTION_NAME="$(az account show --query "name" --output tsv)"
-    echo "Creatingg new game in Azure subscription $AZ_SUBSCRIPTION_NAME ( ID : $ARM_SUBSCRIPTION_ID )"
+    echo "Creating new game in Azure subscription $AZ_SUBSCRIPTION_NAME ( ID : $ARM_SUBSCRIPTION_ID )"
 fi
 
 export GH_AUTH_RESPONSE="$(curl -s -H "Authorization: token $TF_VAR_github_pat" https://api.github.com/user)"
 if [[ "$GH_AUTH_RESPONSE" == *"login"* ]]; then
-    echo "Creatingg new game as GitHub user: $(echo "$GH_AUTH_RESPONSE" | jq -r '.login')"
+    echo "Creating new game as GitHub user: $(echo "$GH_AUTH_RESPONSE" | jq -r '.login')"
 else
     echo "The GitHub PAT is not valid"
     exit 1
 fi
 
-# Note - in a subsequent increment we can likely wrap the process of self-bootstrapping state and creating the initial terragrunt
-# structure in a single `scaffold` execution.
 
-# Create our temporary directory and a nested directory where we will do our initial infrastructure bootstrapping
+
+####################################################################################################################################
+## New Method Start
+####################################################################################################################################
+
+# Create our temporary directory and the nested bootstrap terragrunt tree - create the scaffolder first which will scaffold everything else
 export TEMP_DIR="$(mktemp -d -t toy-azure-game-${GAME_PREFIX}-XXXX)"
 export BOOTSTRAP_BASE_DIR="${TEMP_DIR}/${GAME_NAME}-bootstrap"
-export STATE_BOOTSTRAP_DIR="${BOOTSTRAP_BASE_DIR}/state"
 export TERRAGRUNT_BOOTSTRAP_DIR="${BOOTSTRAP_BASE_DIR}/terragrunt"
-export SCAFFOLD_BOOTSTRAP_DIR="${BOOTSTRAP_BASE_DIR}/scaffold"
-mkdir -p "${STATE_BOOTSTRAP_DIR}"
-mkdir -p "${TERRAGRUNT_BOOTSTRAP_DIR}"
-mkdir -p "${SCAFFOLD_BOOTSTRAP_DIR}"
+export TERRAGRUNT_SCAFFOLD_DIR="${BOOTSTRAP_BASE_DIR}/terragrunt/scaffold"
+export TERRAGRUNT_STATE_BOOTSTRAP_DIR="${BOOTSTRAP_BASE_DIR}/terragrunt/sandbox/eastus/default/state/self_bootstrapped_state"
+export STATE_BOOTSTRAP_DIR="${BOOTSTRAP_BASE_DIR}/terragrunt/scaffold"
+mkdir -p "${TERRAGRUNT_SCAFFOLD_DIR}"
 
-echo "Creating temporary directory $TEMP_DIR for bootstrapping."
-
-# Get our self-bootstrapped state uninitialized copy (TODO - use a real ref)
-curl -H 'Cache-Control: no-cache' -s "https://raw.githubusercontent.com/je-sidestuff/terraform-azure-simple-modules/${TASM_REF}/scripts/self-bootstrapped-state/create_self_bootstrapped_state_config.sh" -o $STATE_BOOTSTRAP_DIR/create_self_bootstrapped_state_config.sh
-chmod +x $STATE_BOOTSTRAP_DIR/create_self_bootstrapped_state_config.sh
-cd $STATE_BOOTSTRAP_DIR && ./create_self_bootstrapped_state_config.sh $GAME_NAME $STATE_BOOTSTRAP_DIR $TERRAGRUNT_BOOTSTRAP_DIR && cd - 2>&1 >/dev/null
-# TODO - we probably want better error detection/feedback here
-cd $STATE_BOOTSTRAP_DIR && ./self_bootstrap.sh 2>&1 >/dev/null && cd - 2>&1 >/dev/null
-
-# Get the scaffolding for the now bootstrapped state, the managed indentity, and the repo
-# (Download scaffolder module, template simple main.tf, and execute - the state for the module will be thrown out)
 export SBS_RG_NAME="$GAME_NAME-rg"
 export SBS_SA_NAME="$(echo ${GAME_NAME}sa | sed 's/-//g')"
 export SBS_SC_NAME="$(echo ${GAME_NAME}sc | sed 's/-//g')"
 export REPO_NAME="$GAME_NAME-infra-live"
 
-#         "init_payload_content_vars.yml": "InitPayloadContent: |\n  { \"subscription_id\": \"$ARM_SUBSCRIPTION_ID\", \"input_targets\": {} }"
+# Define the content to be created in the bootstrap tree:
+# - Scaffolder
+# - Self-Bootstrapped State
+# - Managed Identity
+# - Infra Live Repo
 
+# TODO - Introduce a default scaffolding library to reduce verbosity.
+#        We should be able to use a single string to pull fully-defaulted terragrunt units.
 
-cat << EOF > "${SCAFFOLD_BOOTSTRAP_DIR}/init_payload_content_vars.yml"
-InitPayloadContent: |
-  {
-  "backend": {
-    "resource_group": "$SBS_RG_NAME",
-    "storage_account": "$SBS_SA_NAME",
-    "container": "$SBS_SC_NAME"
-  },
-  "self_bootstrap" : {
-    "subscription_id": "$ARM_SUBSCRIPTION_ID",
-    "var_file_strings": {
-      "init_payload_content_vars.yml": "InitPayloadContent: |\n  { \"subscription_id\": \"$ARM_SUBSCRIPTION_ID\", \"input_targets\": {} }"
+# First create the self-bootstrap perspective of the bootstrap content (to be run inside the created repo)
+
+MANAGED_IDENTITY_JSON=$(cat <<EOF
+"managed_identity": {
+    "repo": "je-sidestuff/terraform-azure-simple-modules",
+    "path": "modules/iam/managed-identity",
+    "ref": "$TASM_REF",
+    "placement": {
+      "region": "eastus",
+      "env": "default",
+      "subscription": "sandbox"
     },
-    "input_targets": {
-      "managed_identity": {
-        "repo": "je-sidestuff/terraform-azure-simple-modules",
-        "path": "modules/iam/managed-identity",
-        "ref": "$TASM_REF",
-        "placement": {
-          "region": "eastus",
-          "env": "default",
-          "subscription": "sandbox"
-        },
-        "vars": {
-          "ResourceGroupName": "$SBS_RG_NAME",
-          "NamingPrefix": "${GAME_NAME}",
-          "FederatedIdentitySubjects": "\"[repo:${TF_VAR_github_org}/${REPO_NAME}:ref:refs/heads/main, repo:${TF_VAR_github_org}/${REPO_NAME}:ref:refs/tags/init]\"",
-          "ContributorScope": "/subscriptions/$ARM_SUBSCRIPTION_ID"
-        }
-      },
-      "infrastructure_live_repo": {
-        "repo": "je-sidestuff/terraform-azure-simple-modules",
-        "path": "modules/smart-template/infrastructure-live-deployment",
-        "ref": "$TASM_REF",
-        "placement": {
-          "region": "eastus",
-          "env": "default",
-          "subscription": "sandbox"
-        },
-        "vars": {
-          "Name": "${REPO_NAME}",
-          "GithubOrg": "${TF_VAR_github_org}",
-          "TimeoutInSeconds": "20"
-        },
-        "var_files": [
-          "init_payload_content_vars.yml"
-        ]
-      }
-    }
-  },
-  "deployment" : {
-    "subscription_id": "$ARM_SUBSCRIPTION_ID",
-    "var_file_strings": {
-      "init_payload_content_vars.yml": "InitPayloadContent: |\n  { \"subscription_id\": \"$ARM_SUBSCRIPTION_ID\", \"input_targets\": {} }"
-    },
-    "input_targets": {
-      "managed_identity": {
-        "repo": "je-sidestuff/terraform-azure-simple-modules",
-        "path": "examples/container-app/simple-webserver",
-        "ref": "$TASM_REF",
-        "placement": {
-          "region": "eastus",
-          "env": "default",
-          "subscription": "sandbox"
-        },
-        "vars": {
-          "NamingPrefix": "gm${GAME_NAME}"
-        }
-      }
-    }
-  }}
-EOF
-
-export ESCAPED_PAYLOAD_RECURSE="$(awk '{printf "%s\\n", $0}' ${SCAFFOLD_BOOTSTRAP_DIR}/init_payload_recurse.yml | sed 's/"/\\"/g')"
-
-echo "Payload: ${ESCAPED_PAYLOAD_RECURSE}"
-
-cat << EOF > "${SCAFFOLD_BOOTSTRAP_DIR}/main.tf"
-module "scaffolding" {
-  source = "github.com/je-sidestuff/terraform-github-orchestration//modules/terragrunt/scaffolder/from-json/?ref=$TGO_REF"
-
-  input_json = <<EOT
-  {
-    "scaffolding_root": "${BOOTSTRAP_BASE_DIR}",
-    "subscription_id": "$ARM_SUBSCRIPTION_ID",
-    "var_files": [
-      "init_payload_content_vars.yml"
-    ],
-    "input_targets": {
-      "managed_identity": {
-        "repo": "je-sidestuff/terraform-azure-simple-modules",
-        "path": "modules/iam/managed-identity",
-        "ref": "$TASM_REF",
-        "placement": {
-          "region": "eastus",
-          "env": "default",
-          "subscription": "sandbox"
-        },
-        "vars": {
-          "ResourceGroupName": "$SBS_RG_NAME",
-          "NamingPrefix": "${GAME_NAME}",
-          "FederatedIdentitySubjects": "\"[repo:${TF_VAR_github_org}/${REPO_NAME}:ref:refs/heads/main, repo:${TF_VAR_github_org}/${REPO_NAME}:ref:refs/tags/init]\"",
-          "ContributorScope": "/subscriptions/$ARM_SUBSCRIPTION_ID"
-        }
-      },
-      "infrastructure_live_repo": {
-        "repo": "je-sidestuff/terraform-azure-simple-modules",
-        "path": "modules/smart-template/infrastructure-live-deployment",
-        "ref": "$TASM_REF",
-        "placement": {
-          "region": "eastus",
-          "env": "default",
-          "subscription": "sandbox"
-        },
-        "vars": {
-          "Name": "${REPO_NAME}",
-          "GithubOrg": "${TF_VAR_github_org}",
-          "TimeoutInSeconds": "300"
-        },
-        "var_files": [
-          "init_payload_content_vars.yml"
-        ]
-      }
+    "vars": {
+      "ResourceGroupName": "$SBS_RG_NAME",
+      "NamingPrefix": "${GAME_NAME}",
+      "FederatedIdentitySubjects": "\"[repo:${TF_VAR_github_org}/${REPO_NAME}:ref:refs/heads/main, repo:${TF_VAR_github_org}/${REPO_NAME}:ref:refs/tags/init]\"",
+      "ContributorScope": "/subscriptions/$ARM_SUBSCRIPTION_ID"
     }
   }
-EOT
+EOF
+)
+
+SELF_BOOTSTRAPPED_STATE_JSON=$(cat <<EOF
+"self_bootstrapped_state": {
+    "repo": "je-sidestuff/terraform-azure-simple-modules",
+    "path": "modules/state/self-bootstrapped-state",
+    "ref": "$TASM_REF",
+    "placement": {
+      "region": "eastus",
+      "env": "default",
+      "subscription": "sandbox"
+    },
+    "vars": {
+      "ResourceGroupName": "${SBS_RG_NAME}",
+      "StorageAccountName": "${SBS_SA_NAME}",
+      "RootContainerName": "${SBS_SC_NAME}",
+      "IncludeRoot": "true"
+    }
+  }
+EOF
+)
+
+INFRA_LIVE_REPO_SELF_BOOTSTRAP_JSON=$(cat <<EOF
+"infrastructure_live_repo": {
+    "repo": "je-sidestuff/terraform-azure-simple-modules",
+    "path": "modules/smart-template/infrastructure-live-deployment",
+    "ref": "$TASM_REF",
+    "placement": {
+      "region": "eastus",
+      "env": "default",
+      "subscription": "sandbox"
+    },
+    "vars": {
+      "Name": "${REPO_NAME}",
+      "GithubOrg": "${TF_VAR_github_org}",
+      "TimeoutInSeconds": "30",
+      "SelfBootstrapContentJsonB64": "e30=",
+      "DeployContentJsonB64": "e30="
+    },
+    "var_files": []
+  }
+EOF
+)
+
+cat << EOF > "${TERRAGRUNT_SCAFFOLD_DIR}/self_bootstrap_nodes.json"
+{
+  "input_targets": {
+    ${SELF_BOOTSTRAPPED_STATE_JSON},
+    ${MANAGED_IDENTITY_JSON},
+    ${INFRA_LIVE_REPO_SELF_BOOTSTRAP_JSON}
+  }
 }
 EOF
 
-cd $SCAFFOLD_BOOTSTRAP_DIR && terraform init && terraform apply --auto-approve && cd -
+export SELF_BOOTSTRAP_SCAFFOLD_JSON_B64="$(base64 -w0 ${TERRAGRUNT_SCAFFOLD_DIR}/self_bootstrap_nodes.json)"
 
-# Apply the scaffolded terragrunt
-cd $TERRAGRUNT_BOOTSTRAP_DIR && terragrunt run-all apply --terragrunt-non-interactive && cd -
+# Define the content to be created in the deployment tree:
+# - (For now only example)
+# - ACR
+# - ACR Image Build
+# - ACA Environment
+# - Game Client ACA
 
-# The final step of the infra-live leaf node is to push the post-init tag, kicking off the next activity column
+TMP_ACA_EXAMPLE_JSON=$(cat <<EOF
+"app": {
+    "repo": "je-sidestuff/terraform-azure-simple-modules",
+    "path": "examples/container-app/simple-webserver",
+    "ref": "$TASM_REF",
+    "placement": {
+      "region": "eastus",
+      "env": "default",
+      "subscription": "sandbox"
+    },
+    "vars": {
+      "NamingPrefix": "gm${GAME_NAME}"
+    }
+  }
+EOF
+)
+
+cat << EOF > "${TERRAGRUNT_SCAFFOLD_DIR}/deploy_nodes.json"
+{
+  "input_targets": {
+    ${TMP_ACA_EXAMPLE_JSON}
+  }
+}
+EOF
+
+export DEPLOY_SCAFFOLD_JSON_B64="$(base64 -w0 ${TERRAGRUNT_SCAFFOLD_DIR}/deploy_nodes.json)"
+
+# Next create the orchestrator perspective of the bootstrap content
+
+INFRA_LIVE_REPO_ORCHESTRATOR_JSON=$(cat <<EOF
+"infrastructure_live_repo": {
+    "repo": "je-sidestuff/terraform-azure-simple-modules",
+    "path": "modules/smart-template/infrastructure-live-deployment",
+    "ref": "$TASM_REF",
+    "placement": {
+      "region": "eastus",
+      "env": "default",
+      "subscription": "sandbox"
+    },
+    "vars": {
+      "Name": "${REPO_NAME}",
+      "GithubOrg": "${TF_VAR_github_org}",
+      "TimeoutInSeconds": "300",
+      "SelfBootstrapContentJsonB64": "$SELF_BOOTSTRAP_SCAFFOLD_JSON_B64",
+      "DeployContentJsonB64": "$DEPLOY_SCAFFOLD_JSON_B64"
+    },
+    "var_files": []
+  }
+EOF
+)
+
+
+SELF_BOOTSTRAPPED_STATE_ORCHESTRATOR_JSON=$(cat <<EOF
+"self_bootstrapped_state": {
+    "repo": "je-sidestuff/terraform-azure-simple-modules",
+    "path": "modules/state/self-bootstrapped-state",
+    "ref": "$TASM_REF",
+    "placement": {
+      "region": "eastus",
+      "env": "default",
+      "subscription": "sandbox"
+    },
+    "vars": {
+      "ResourceGroupName": "${SBS_RG_NAME}",
+      "StorageAccountName": "${SBS_SA_NAME}",
+      "RootContainerName": "${SBS_SC_NAME}",
+      "IncludeRoot": "false"
+    }
+  }
+EOF
+)
+
+# We may not actually end up using the json file - let's keep it in the chain for visibility for now.
+# Note that we also don't need to explicitly define the key here, but we will for consistency.
+cat << EOF > "${TERRAGRUNT_SCAFFOLD_DIR}/orchestrator_bootstrap_nodes.json"
+{
+  "input_targets": {
+    ${SELF_BOOTSTRAPPED_STATE_ORCHESTRATOR_JSON},
+    ${MANAGED_IDENTITY_JSON},
+    ${INFRA_LIVE_REPO_ORCHESTRATOR_JSON}
+  },
+  "backend_generators": {
+    "azure": {
+      "backend_type": "azure",
+      "backend_subtype": "user",
+      "arguments": {
+        "resource_group_name": "${SBS_RG_NAME}",
+        "storage_account_name": "${SBS_SA_NAME}",
+        "container_name": "${SBS_SC_NAME}", 
+        "key": "root.tfstate"
+      }
+    }
+  },
+  "provider_generators": {
+    "azure": {
+      "provider_type": "azure",
+      "provider_subtype": "user",
+      "arguments": {
+        "subscription_id": "${ARM_SUBSCRIPTION_ID}"
+      }
+    }
+  },
+  "subscription_id": "${ARM_SUBSCRIPTION_ID}",
+  "scaffolding_root": "${BOOTSTRAP_BASE_DIR}"
+}
+EOF
+
+export ORCHESTRATOR_SCAFFOLD_JSON_B64="$(base64 -w0 ${TERRAGRUNT_SCAFFOLD_DIR}/orchestrator_bootstrap_nodes.json)"
+
+# Scaffold our scaffolder so it can scaffold the remaining tree
+cd $TERRAGRUNT_SCAFFOLD_DIR
+terragrunt scaffold github.com/je-sidestuff/terraform-github-orchestration//modules/terragrunt/scaffolder/from-json?ref=$TGO_REF --var=InputJsonB64="$ORCHESTRATOR_SCAFFOLD_JSON_B64" --terragrunt-non-interactive
+terragrunt run-all apply --terragrunt-non-interactive
+cd -
+
+echo "Scaffolding complete in: ${TERRAGRUNT_SCAFFOLD_DIR}"
+
+cd $TERRAGRUNT_STATE_BOOTSTRAP_DIR
+./self_bootstrap.sh
+cd -
+
+
+echo "State bootstrapped complete in: ${TERRAGRUNT_STATE_BOOTSTRAP_DIR}"
+
+echo "#!/bin/bash" > "${BOOTSTRAP_BASE_DIR}/destroy.sh"
+echo "Destroy commands:"
+echo "# Destroy commands:" >> "${BOOTSTRAP_BASE_DIR}/destroy.sh"
+echo "cd ${TERRAGRUNT_BOOTSTRAP_DIR}; terragrunt run-all destroy --terragrunt-non-interactive; cd -"
+echo "cd ${TERRAGRUNT_BOOTSTRAP_DIR}; terragrunt run-all destroy --terragrunt-non-interactive; cd -" >> "${BOOTSTRAP_BASE_DIR}/destroy.sh"
+echo "cd ${TERRAGRUNT_STATE_BOOTSTRAP_DIR}; ./destroy_state.sh; cd -"
+echo "cd ${TERRAGRUNT_STATE_BOOTSTRAP_DIR}; ./destroy_state.sh; cd -" >> "${BOOTSTRAP_BASE_DIR}/destroy.sh"
+echo "${BOOTSTRAP_BASE_DIR}/destroy.sh"
+chmod 755 "${BOOTSTRAP_BASE_DIR}/destroy.sh"
+
+if [ "${SKIP_CREATE_STACK}" != "true" ]; then
+    echo "SKIP_CREATE_STACK is not set - creating stack."
+    cd "${BOOTSTRAP_BASE_DIR}/terragrunt/sandbox/"
+    terragrunt run-all apply --terragrunt-non-interactive
+    cd -
+fi
