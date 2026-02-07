@@ -7,7 +7,7 @@ ARG HADOLINT_VERSION=v2.12.0
 ARG SHELLCHECK_VERSION=v0.9.0
 
 # https://hub.docker.com/r/alpine/terragrunt/tags
-ARG TERRAGRUNT_VERSION=1.8.4
+ARG TERRAGRUNT_VERSION=1.12.1
 
 # https://github.com/terraform-linters/tflint/pkgs/container/tflint
 ARG TFLINT_VERSION=v0.48.0

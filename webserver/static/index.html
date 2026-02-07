@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Platform Orchestrator</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #1a1a2e;
+            color: #eee;
+        }
+        h1 {
+            color: #00d9ff;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #0f3460;
+        }
+        .card h2 {
+            margin-top: 0;
+            color: #00d9ff;
+            font-size: 1.2em;
+        }
+        .env-status {
+            display: grid;
+            gap: 10px;
+        }
+        .env-var {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: #0f3460;
+            border-radius: 4px;
+        }
+        .env-var code {
+            font-size: 0.9em;
+            color: #ffcc00;
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        .status-set {
+            background: #00c853;
+            color: #000;
+        }
+        .status-missing {
+            background: #ff5252;
+            color: #fff;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #aaa;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #0f3460;
+            border-radius: 4px;
+            background: #0f3460;
+            color: #fff;
+            font-size: 1em;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #00d9ff;
+        }
+        .form-group small {
+            color: #888;
+            font-size: 0.85em;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            font-size: 1.1em;
+            font-weight: bold;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button.launch-btn {
+            background: linear-gradient(135deg, #00d9ff, #0077ff);
+            color: #000;
+        }
+        button.launch-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0, 217, 255, 0.4);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .output-section {
+            display: none;
+        }
+        .output-section.visible {
+            display: block;
+        }
+        .output-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .output-header h2 {
+            margin: 0;
+        }
+        .status-indicator {
+            padding: 6px 16px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status-running {
+            background: #ffcc00;
+            color: #000;
+            animation: pulse 1.5s infinite;
+        }
+        .status-success {
+            background: #00c853;
+            color: #000;
+        }
+        .status-error {
+            background: #ff5252;
+            color: #fff;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        pre {
+            background: #0a0a15;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 0.85em;
+            line-height: 1.5;
+            border: 1px solid #0f3460;
+        }
+        .warning {
+            background: #ff5252;
+            color: #fff;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,0.3);
+            border-radius: 50%;
+            border-top-color: #000;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <h1>Game Platform Orchestrator</h1>
+
+    <div class="card">
+        <h2>Environment Status</h2>
+        <div id="envStatus" class="env-status">
+            Loading...
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Launch New Game</h2>
+        <div id="envWarning" class="warning" style="display: none;">
+            Some required environment variables are missing. Please set them before launching.
+        </div>
+        <form id="launchForm">
+            <div class="form-group">
+                <label for="gamePrefix">Game Prefix (optional)</label>
+                <input type="text" id="gamePrefix" name="gamePrefix"
+                       pattern="^[a-z][a-z-]*[a-z]$|^[a-z]$"
+                       placeholder="e.g., my-cool-game">
+                <small>Lowercase letters and hyphens only. If empty, a random name will be generated.</small>
+            </div>
+            <button type="submit" id="launchBtn" class="launch-btn">
+                Launch New Game
+            </button>
+        </form>
+    </div>
+
+    <div id="outputSection" class="card output-section">
+        <div class="output-header">
+            <h2>Output</h2>
+            <span id="statusIndicator" class="status-indicator"></span>
+        </div>
+        <pre id="output"></pre>
+    </div>
+
+    <script>
+        const envStatusEl = document.getElementById('envStatus');
+        const envWarningEl = document.getElementById('envWarning');
+        const launchForm = document.getElementById('launchForm');
+        const launchBtn = document.getElementById('launchBtn');
+        const gamePrefixInput = document.getElementById('gamePrefix');
+        const outputSection = document.getElementById('outputSection');
+        const outputEl = document.getElementById('output');
+        const statusIndicator = document.getElementById('statusIndicator');
+
+        let allEnvSet = false;
+
+        async function checkEnvStatus() {
+            try {
+                const response = await fetch('/api/env-status');
+                const statuses = await response.json();
+
+                envStatusEl.innerHTML = statuses.map(s => `
+                    <div class="env-var">
+                        <code>${s.variable}</code>
+                        <span class="status-badge ${s.is_set ? 'status-set' : 'status-missing'}">
+                            ${s.is_set ? 'SET' : 'MISSING'}
+                        </span>
+                    </div>
+                `).join('');
+
+                allEnvSet = statuses.every(s => s.is_set);
+                envWarningEl.style.display = allEnvSet ? 'none' : 'block';
+                launchBtn.disabled = !allEnvSet;
+            } catch (error) {
+                envStatusEl.innerHTML = '<div class="warning">Failed to check environment status</div>';
+            }
+        }
+
+        launchForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!allEnvSet) {
+                alert('Please set all required environment variables first.');
+                return;
+            }
+
+            const gamePrefix = gamePrefixInput.value.trim();
+
+            // Validate prefix format if provided
+            if (gamePrefix && !/^[a-z][a-z-]*[a-z]$|^[a-z]$/.test(gamePrefix)) {
+                alert('Invalid game prefix. Use lowercase letters and hyphens only. Cannot start or end with a hyphen.');
+                return;
+            }
+
+            // Show output section and set running state
+            outputSection.classList.add('visible');
+            outputEl.textContent = '';
+            statusIndicator.className = 'status-indicator status-running';
+            statusIndicator.innerHTML = '<span class="spinner"></span>Running';
+            launchBtn.disabled = true;
+            launchBtn.innerHTML = '<span class="spinner"></span>Launching...';
+
+            // Use fetch with POST to initiate SSE stream
+            try {
+                const response = await fetch('/api/launch-stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ game_prefix: gamePrefix || undefined }),
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(errorText || response.statusText);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Process complete SSE messages
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+                    let currentEvent = '';
+                    let currentData = '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('event: ')) {
+                            currentEvent = line.slice(7);
+                        } else if (line.startsWith('data: ')) {
+                            currentData = line.slice(6);
+
+                            // Process the event
+                            if (currentEvent === 'output') {
+                                outputEl.textContent += currentData + '\n';
+                                // Auto-scroll to bottom
+                                outputEl.scrollTop = outputEl.scrollHeight;
+                            } else if (currentEvent === 'start') {
+                                outputEl.textContent += '=== ' + currentData + ' ===\n\n';
+                            } else if (currentEvent === 'complete') {
+                                statusIndicator.className = 'status-indicator status-success';
+                                statusIndicator.textContent = 'Success';
+                                outputEl.textContent += '\n=== ' + currentData + ' ===\n';
+                            } else if (currentEvent === 'error') {
+                                statusIndicator.className = 'status-indicator status-error';
+                                statusIndicator.textContent = 'Failed';
+                                outputEl.textContent += '\n=== ERROR: ' + currentData + ' ===\n';
+                            }
+
+                            currentEvent = '';
+                            currentData = '';
+                        }
+                    }
+                }
+            } catch (error) {
+                statusIndicator.className = 'status-indicator status-error';
+                statusIndicator.textContent = 'Error';
+                outputEl.textContent += '\nError: ' + error.message;
+            } finally {
+                launchBtn.disabled = false;
+                launchBtn.textContent = 'Launch New Game';
+            }
+        });
+
+        // Check env status on load
+        checkEnvStatus();
+    </script>
+</body>
+</html>
