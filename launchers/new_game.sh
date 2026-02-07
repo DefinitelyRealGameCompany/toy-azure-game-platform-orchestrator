@@ -97,10 +97,14 @@ export GAME_NAME="${GAME_PREFIX}-game"
 
 # Ask the user if they want to continue with the selected game name
 echo "Selected game name: $GAME_NAME"
-read -p "Do you want to continue with this game name? (y/n) " choice
-if [ "$choice" != "y" ]; then
-    echo "Exiting..."
-    exit 0
+if [ "$AUTO_START_NEW_GAME" != "true" ]; then
+    read -p "Do you want to continue with this game name? (y/n) " choice
+    if [ "$choice" != "y" ]; then
+        echo "Exiting..."
+        exit 0
+    fi
+else
+    echo "Automatically starting new game because AUTO_START_NEW_GAME is true."
 fi
 
 # Validate we have the Azure and Githuub credentials we need
